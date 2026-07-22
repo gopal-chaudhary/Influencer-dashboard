@@ -9,6 +9,7 @@ import streamlit as st
 
 from repositories.influencer_repository import InfluencerRepository
 from services.dashboard_service import DashboardWorkflowService
+from services.export_service import ExportService
 from services.grok_service import GrokConfigurationError
 from ui.dashboard import render_dashboard
 from ui.filters import render_filters_sidebar
@@ -72,5 +73,6 @@ if st.session_state.get("workflow_error"):
 all_evaluated_influencers = st.session_state.get("evaluated_influencers") or []
 filters = render_filters_sidebar(all_evaluated_influencers)
 filtered_evaluations = DashboardWorkflowService.filter_results(all_evaluated_influencers, filters)
+export_service = ExportService()
 
-render_dashboard(filtered_evaluations)
+render_dashboard(filtered_evaluations, filters, export_service)

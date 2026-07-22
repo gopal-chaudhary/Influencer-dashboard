@@ -7,7 +7,9 @@ from collections.abc import Iterable, Sequence
 import pandas as pd
 import streamlit as st
 
-from models import EvaluatedInfluencer
+from models import DashboardFilters, EvaluatedInfluencer
+from services.export_service import ExportService
+from ui.export_section import render_export_section
 
 
 TABLE_COLUMNS = [
@@ -24,7 +26,11 @@ TABLE_COLUMNS = [
 ]
 
 
-def render_dashboard(evaluated_influencers: Sequence[EvaluatedInfluencer]) -> None:
+def render_dashboard(
+    evaluated_influencers: Sequence[EvaluatedInfluencer],
+    filters: DashboardFilters,
+    export_service: ExportService,
+) -> None:
     """Render the complete ranked dashboard for the current filtered results."""
     if not evaluated_influencers:
         st.info("No influencer analysis matches the current filters.")
@@ -32,6 +38,7 @@ def render_dashboard(evaluated_influencers: Sequence[EvaluatedInfluencer]) -> No
 
     _render_metrics(evaluated_influencers)
     _render_results_table(evaluated_influencers)
+    render_export_section(evaluated_influencers, filters, export_service)
     _render_details(evaluated_influencers)
 
 
