@@ -7,13 +7,19 @@ so the same logic can be reused by tests or future API endpoints.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Sequence
+
+from utils import get_logger
 
 from config.scoring_config import ScoringConfig
 from models import AIAnalysis, DashboardFilters, EvaluatedInfluencer, Influencer
 from services.grok_service import GrokAPIRequestError, GrokConfigurationError, GrokResponseParseError, GrokService
 from services.scoring_service import ScoringService
+
+
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -32,8 +38,19 @@ class DashboardWorkflowService:
 
     def evaluate_influencers(self, influencers: Sequence[Influencer]) -> list[EvaluatedInfluencer]:
         """Analyze and score each influencer, then return ranked results."""
-        evaluated_influencers = [self._evaluate_influencer(influencer) for influencer in influencers]
+        if not influencers:
+            return []
+
+        logger.info("Evaluating %d influencers", len(influencers))
+        if len(influencers) == 1:
+            evaluated_influencers = [self._evaluate_influencer(influencers[0])]
+        else:
+            max_workers = min(4, len(influencers))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                evaluated_influencers = list(executor.map(self._evaluate_influencer, influencers))
+
         ranked_influencers = self._rank_evaluations(evaluated_influencers)
+        logger.info("Finished evaluating %d influencers", len(ranked_influencers))
         return ranked_influencers
 
     @staticmethod
@@ -73,6 +90,7 @@ class DashboardWorkflowService:
         try:
             return self.grok_service.analyze_influencer(influencer)
         except (GrokConfigurationError, GrokAPIRequestError, GrokResponseParseError) as exc:
+            logger.warning("Using fallback AI analysis for %s: %s", influencer.handle, exc)
             return AIAnalysis(
                 detected_language=influencer.language or "unknown",
                 niche="unknown",

@@ -26,6 +26,10 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 
 from config.grok_config import GrokConfig
 from models import AIAnalysis, Influencer
+from utils import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class GrokServiceError(Exception):
@@ -57,6 +61,7 @@ class GrokService:
         self.config = config
 
         if not config.has_api_key:
+            logger.error("Missing xAI API key in Grok configuration")
             raise GrokConfigurationError("Missing xAI API key. Set XAI_API_KEY in the .env file.")
 
         if self.client is None:
@@ -69,10 +74,14 @@ class GrokService:
     def analyze_influencer(self, influencer: Influencer) -> AIAnalysis:
         """Analyze one influencer profile and return structured AI insights."""
         prompt = self._build_prompt(influencer)
+        logger.debug("Analyzing influencer '%s' with Grok", influencer.handle)
         response_text = self._execute_request(prompt)
         try:
-            return AIAnalysis.from_json(response_text)
+            analysis = AIAnalysis.from_json(response_text)
+            logger.debug("Grok analysis completed for '%s'", influencer.handle)
+            return analysis
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.exception("Failed to parse Grok JSON response for '%s'", influencer.handle)
             raise GrokResponseParseError(
                 "Grok returned invalid JSON for the influencer analysis"
             ) from exc
@@ -98,8 +107,10 @@ class GrokService:
                 with attempt:
                     return self._create_completion(prompt)
         except (AuthenticationError, BadRequestError, ConflictError, UnprocessableEntityError) as exc:
+            logger.error("Non-retryable Grok API error: %s", exc)
             raise GrokAPIRequestError(self._format_error_message(exc)) from exc
         except OpenAIError as exc:
+            logger.error("Grok request failed after retries: %s", exc)
             raise GrokAPIRequestError(self._format_error_message(exc)) from exc
 
         raise GrokAPIRequestError("Grok request failed without a response")
@@ -128,6 +139,7 @@ class GrokService:
 
         content = response.choices[0].message.content if response.choices else None
         if not content or not content.strip():
+            logger.warning("Grok returned an empty response")
             raise GrokResponseParseError("Grok returned an empty response")
         return content
 

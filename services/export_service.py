@@ -15,6 +15,7 @@ from typing import Sequence
 import pandas as pd
 
 from models import DashboardFilters, EvaluatedInfluencer
+from utils import get_logger
 
 
 @dataclass(slots=True)
@@ -26,6 +27,9 @@ class ExportArtifacts:
     csv_filename: str
     excel_filename: str
     timestamp: str
+
+
+logger = get_logger(__name__)
 
 
 class ExportService:
@@ -41,6 +45,7 @@ class ExportService:
         dataframe = self._build_export_dataframe(evaluated_influencers, filters, timestamp)
         csv_bytes = dataframe.to_csv(index=False).encode("utf-8")
         excel_bytes = self._build_excel_bytes(dataframe, filters, timestamp)
+        logger.info("Built export artifacts for %d ranked influencers", len(dataframe.index))
 
         suffix = timestamp.replace(":", "").replace("-", "")
         return ExportArtifacts(

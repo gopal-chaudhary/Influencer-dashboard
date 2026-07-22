@@ -8,6 +8,7 @@ from .exceptions import (
     InvalidRowError,
     MissingColumnsError,
 )
+from .logging_config import configure_logging, get_logger
 
 __all__ = [
     "DuplicateInfluencerError",
@@ -16,4 +17,6 @@ __all__ = [
     "InvalidFileFormatError",
     "InvalidRowError",
     "MissingColumnsError",
+    "configure_logging",
+    "get_logger",
 ]
