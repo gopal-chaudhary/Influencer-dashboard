@@ -14,7 +14,7 @@ from typing import Any, Sequence
 
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from config.grok_config import GrokConfig
+from config.gemini_config import GrokConfig
 from models import AIAnalysis, Influencer
 from utils import get_logger
 
@@ -97,7 +97,7 @@ class GrokService:
             logger.warning("Gemini batch response could not be parsed: %s", exc)
             return self._default_analysis_map(influencers, details=str(exc))
         except Exception as exc:  # pragma: no cover - environment-specific SDK failures
-            logger.warning("Gemini batch request failed: %s", exc)
+            logger.error("Gemini batch request failed: %s", exc, exc_info=True)
             return self._default_analysis_map(influencers, details=str(exc))
 
     def _build_client(self, api_key: str) -> Any | None:

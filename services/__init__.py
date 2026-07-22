@@ -2,7 +2,7 @@
 
 from .dashboard_service import DashboardWorkflowService
 from .export_service import ExportArtifacts, ExportService
-from .grok_service import (
+from .gemini_service import (
     GrokAPIRequestError,
     GrokConfigurationError,
     GrokResponseParseError,

@@ -7,10 +7,13 @@ import json
 
 import streamlit as st
 
+from config.gemini_config import GrokConfig
+from config.scoring_config import ScoringConfig
 from repositories.influencer_repository import InfluencerRepository
 from services.dashboard_service import DashboardWorkflowService
 from services.export_service import ExportService
-from services.grok_service import GrokConfigurationError
+from services.gemini_service import GrokConfigurationError, GrokService
+from services.scoring_service import ScoringService
 from ui.dashboard import render_dashboard
 from ui.filters import render_filters_sidebar
 from ui.sidebar import render_sidebar
@@ -64,14 +67,26 @@ try:
 
     if needs_refresh:
         try:
-            workflow_service = DashboardWorkflowService.create_default()
+            # Create workflow service with custom API key if provided
+            api_key = st.session_state.get("gemini_api_key")
+            if api_key:
+                # Use custom API key
+                custom_config = GrokConfig.with_api_key(api_key)
+                grok_service = GrokService(config=custom_config)
+                workflow_service = DashboardWorkflowService(
+                    grok_service=grok_service,
+                    scoring_service=ScoringService(ScoringConfig()),
+                )
+            else:
+                # Use default configuration (from environment or .env)
+                workflow_service = DashboardWorkflowService.create_default()
         except GrokConfigurationError as exc:
             st.session_state["workflow_error"] = str(exc)
             logger.error("Unable to create workflow service: %s", exc)
             st.error(str(exc))
             st.stop()
 
-        with st.spinner("Analyzing influencers with Grok and scoring the results..."):
+        with st.spinner("Analyzing influencers with Gemini and scoring the results..."):
             st.session_state["evaluated_influencers"] = workflow_service.evaluate_influencers(current_result.influencers)
             st.session_state["dataset_fingerprint"] = fingerprint
             st.session_state["workflow_error"] = None

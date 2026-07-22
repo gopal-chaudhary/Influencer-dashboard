@@ -1,6 +1,6 @@
 """Configuration package for the Influencer Discovery Dashboard."""
 
-from .grok_config import GrokConfig
+from .gemini_config import GrokConfig
 from .scoring_config import (
     AI_WEIGHT,
     BIO_KEYWORDS,

@@ -32,7 +32,7 @@ class AIScoringStrategy(Protocol):
 
 @dataclass(slots=True)
 class AIAnalysisScoringStrategy:
-    """Score the AI result using the Grok analysis payload."""
+    """Score the AI result using the Gemini analysis payload."""
 
     def score(
         self,

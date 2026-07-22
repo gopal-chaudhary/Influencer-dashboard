@@ -14,7 +14,7 @@ from utils import get_logger
 
 from config.scoring_config import ScoringConfig
 from models import AIAnalysis, DashboardFilters, EvaluatedInfluencer, Influencer
-from services.grok_service import GrokAPIRequestError, GrokConfigurationError, GrokResponseParseError, GrokService
+from services.gemini_service import GrokAPIRequestError, GrokConfigurationError, GrokResponseParseError, GrokService
 from services.scoring_service import ScoringService
 
 

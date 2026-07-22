@@ -3,9 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from config.grok_config import GrokConfig
+from config.gemini_config import GrokConfig
 from models import Influencer
-from services.grok_service import GrokService
+from services.gemini_service import GrokService
 
 
 class GrokServiceTests(unittest.TestCase):

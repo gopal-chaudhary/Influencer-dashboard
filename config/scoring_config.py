@@ -50,7 +50,8 @@ ENGAGEMENT_RATE_CAP = 0.20
 # Number of top-ranked influencers to receive Gemini AI analysis.
 # Remaining influencers show preliminary rule-based scores only.
 # This reduces API usage while maintaining quality analysis for top candidates.
-TOP_AI_ANALYSIS_COUNT = 10
+# Reduced to 2 for testing with new free tier account to minimize token usage
+TOP_AI_ANALYSIS_COUNT = 2
 
 
 @dataclass(frozen=True, slots=True)

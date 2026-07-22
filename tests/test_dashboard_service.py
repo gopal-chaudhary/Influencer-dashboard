@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from models import AIAnalysis, DashboardFilters, Influencer
 from services.dashboard_service import DashboardWorkflowService
-from services.grok_service import GrokService
+from services.gemini_service import GrokService
 from services.scoring_service import ScoringService
 
 

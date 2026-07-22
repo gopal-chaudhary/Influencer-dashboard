@@ -11,10 +11,10 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 DEFAULT_GEMINI_MODEL_CANDIDATES = (
-    "gemini-2.5-flash-lite",
     "gemini-2.0-flash",
+    "gemini-1.5-pro",
     "gemini-1.5-flash",
 )
 DEFAULT_TEMPERATURE = 0.2
@@ -104,6 +104,25 @@ class GrokConfig:
     def has_api_key(self) -> bool:
         """Return ``True`` when an API key is configured."""
         return bool(self.api_key)
+
+    @classmethod
+    def with_api_key(cls, api_key: str | None, base_config: GrokConfig | None = None) -> "GrokConfig":
+        """Create a new config with a custom API key.
+        
+        This is useful for testing with user-provided API keys in hosted environments.
+        """
+        base = base_config or cls.from_env()
+        return cls(
+            api_key=api_key,
+            model=base.model,
+            model_candidates=base.model_candidates,
+            temperature=base.temperature,
+            max_output_tokens=base.max_output_tokens,
+            timeout_seconds=base.timeout_seconds,
+            max_retries=base.max_retries,
+            retry_initial_delay_seconds=base.retry_initial_delay_seconds,
+            retry_max_delay_seconds=base.retry_max_delay_seconds,
+        )
 
     @staticmethod
     def _normalize_model_candidates(
