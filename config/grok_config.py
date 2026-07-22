@@ -20,6 +20,7 @@ DEFAULT_RETRY_INITIAL_DELAY_SECONDS = 1.0
 DEFAULT_RETRY_MAX_DELAY_SECONDS = 8.0
 
 ENV_API_KEY = "GEMINI_API_KEY"
+ENV_GOOGLE_API_KEY = "GOOGLE_API_KEY"
 ENV_MODEL = "GEMINI_MODEL"
 ENV_TEMPERATURE = "GEMINI_TEMPERATURE"
 ENV_MAX_OUTPUT_TOKENS = "GEMINI_MAX_OUTPUT_TOKENS"
@@ -51,7 +52,7 @@ class GrokConfig:
         """Load configuration from environment variables and ``.env`` files."""
         load_dotenv()
         return cls(
-            api_key=os.getenv(ENV_API_KEY),
+            api_key=os.getenv(ENV_API_KEY) or os.getenv(ENV_GOOGLE_API_KEY),
             model=os.getenv(ENV_MODEL, DEFAULT_GEMINI_MODEL),
             temperature=_read_float(ENV_TEMPERATURE, DEFAULT_TEMPERATURE),
             max_output_tokens=_read_int(ENV_MAX_OUTPUT_TOKENS, DEFAULT_MAX_OUTPUT_TOKENS),

@@ -1,7 +1,7 @@
 """Reusable service for analyzing influencers with Google Gemini.
 
 The service keeps the same public interface as the previous AI integration so
-the rest of the architecture remains unchanged.
+research, ranking, and the UI can keep using the same architecture.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import importlib
 import json
 from dataclasses import dataclass
 from types import ModuleType
-from typing import Any
+from typing import Any, Sequence
 
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
@@ -64,27 +64,41 @@ class GrokService:
 
     def analyze_influencer(self, influencer: Influencer) -> AIAnalysis:
         """Analyze one influencer profile and return structured AI insights."""
-        prompt = self._build_prompt(influencer)
-        logger.debug("Analyzing influencer '%s' with Gemini", influencer.handle)
+        analysis_map = self.analyze_influencers([influencer])
+        normalized_handle = self._normalize_handle(influencer.handle)
+        analysis = analysis_map.get(normalized_handle)
+        if analysis is not None:
+            return analysis
 
-        response_text = self._execute_request(prompt)
-        if not response_text:
-            return self._default_analysis(
-                influencer,
-                "AI analysis temporarily unavailable; using default scoring only",
-            )
+        return self._default_analysis(
+            influencer,
+            "AI analysis temporarily unavailable; using default scoring only",
+        )
+
+    def analyze_influencers(self, influencers: Sequence[Influencer]) -> dict[str, AIAnalysis]:
+        """Analyze many influencers in one Gemini request.
+
+        The returned mapping is keyed by normalized handle so the workflow layer can
+        consume a single batch response without changing the UI or scoring layer.
+        """
+        if not influencers:
+            return {}
+
+        prompt = self._build_batch_prompt(influencers)
+        logger.debug("Analyzing %d influencers with Gemini in a single request", len(influencers))
 
         try:
-            analysis = AIAnalysis.from_json(response_text)
-            logger.debug("Gemini analysis completed for '%s'", influencer.handle)
-            return analysis
-        except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            logger.warning("Failed to parse Gemini JSON response for '%s': %s", influencer.handle, exc)
-            return self._default_analysis(
-                influencer,
-                "AI analysis temporarily unavailable; using default scoring only",
-                details=f"Gemini returned invalid JSON: {exc}",
-            )
+            response_text = self._execute_request(prompt)
+            if not response_text:
+                return self._default_analysis_map(influencers)
+
+            return self._parse_batch_response(response_text, influencers)
+        except GrokResponseParseError as exc:
+            logger.warning("Gemini batch response could not be parsed: %s", exc)
+            return self._default_analysis_map(influencers, details=str(exc))
+        except Exception as exc:  # pragma: no cover - environment-specific SDK failures
+            logger.warning("Gemini batch request failed: %s", exc)
+            return self._default_analysis_map(influencers, details=str(exc))
 
     def _build_client(self, api_key: str) -> Any | None:
         """Create a Gemini client from the official SDK if installed."""
@@ -193,36 +207,145 @@ class GrokService:
 
     def _build_prompt(self, influencer: Influencer) -> str:
         """Build a prompt that asks for structured JSON analysis only."""
-        recent_content = "\n".join(f"- {item}" for item in influencer.recent_content) or "- none"
+        return self._build_batch_prompt([influencer])
+
+    def _build_batch_prompt(self, influencers: Sequence[Influencer]) -> str:
+        """Build a prompt for batch JSON analysis.
+
+        The model is instructed to return a JSON object containing a ``results``
+        array with one object per influencer, each including the influencer handle
+        so we can map the response back to the original dataset.
+        """
+        influencer_blocks: list[str] = []
+        for influencer in influencers:
+            recent_content = "\n".join(f"- {item}" for item in influencer.recent_content) or "- none"
+            influencer_blocks.append(
+                "\n".join(
+                    (
+                        f"Handle: {influencer.handle}",
+                        f"Name: {influencer.name}",
+                        f"Platform: {influencer.platform}",
+                        f"Language: {influencer.language or 'unknown'}",
+                        f"Bio: {influencer.bio or 'none'}",
+                        f"Recent content:\n{recent_content}",
+                        f"Followers: {influencer.followers}",
+                    )
+                )
+            )
+
         return (
-            "Analyze the following influencer profile and return a single JSON object only.\n\n"
-            "Required JSON keys:\n"
-            "- detected_language: string\n"
-            "- niche: string\n"
-            "- government_support_score: integer from 0 to 100\n"
-            "- political_orientation: string\n"
-            "- confidence: number from 0 to 1\n"
-            "- summary: string\n"
-            "- keywords: array of short strings\n"
-            "- reasoning: string\n\n"
-            "Analysis instructions:\n"
-            "- Use the bio, recent content, and language fields.\n"
+            "Analyze the following influencer profiles and return a single JSON object only.\n\n"
+            "Return exactly this structure:\n"
+            "{\n"
+            '  "results": [\n'
+            "    {\n"
+            '      "handle": "",\n'
+            '      "detected_language": "",\n'
+            '      "niche": "",\n'
+            '      "government_support_score": 0,\n'
+            '      "political_orientation": "",\n'
+            '      "confidence": 0,\n'
+            '      "summary": "",\n'
+            '      "keywords": [],\n'
+            '      "reasoning": ""\n'
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "Rules:\n"
+            "- Return JSON only. No markdown, no prose, no code fences.\n"
+            "- Include one result for each influencer.\n"
+            "- Preserve each influencer handle exactly so the results can be matched.\n"
+            "- Use the bio, recent content, language, and followers fields.\n"
             "- Identify the main niche.\n"
             "- Assess whether the content appears supportive of government initiatives.\n"
-            "- Provide a confidence score for your analysis.\n"
-            "- If information is unclear, use the best-supported inference rather than fabricating facts.\n"
-            "- Return JSON only. No markdown, no prose outside JSON.\n\n"
-            f"Name: {influencer.name}\n"
-            f"Handle: @{influencer.handle}\n"
-            f"Platform: {influencer.platform}\n"
-            f"Language: {influencer.language or 'unknown'}\n"
-            f"Bio: {influencer.bio or 'none'}\n"
-            f"Recent content:\n{recent_content}\n"
-            f"Followers: {influencer.followers}\n"
+            "- Provide a confidence score from 0 to 1.\n\n"
+            + "\n\n".join(influencer_blocks)
         )
 
+    def _parse_batch_response(self, response_text: str, influencers: Sequence[Influencer]) -> dict[str, AIAnalysis]:
+        """Parse a batch Gemini response into a handle-indexed mapping."""
+        cleaned_text = self._strip_code_fences(response_text)
+        payload = json.loads(cleaned_text)
+
+        if isinstance(payload, list):
+            results_payload = payload
+        elif isinstance(payload, dict):
+            results_payload = payload.get("results", [])
+        else:
+            raise GrokResponseParseError("Gemini batch response must be a JSON object or array")
+
+        if not isinstance(results_payload, list):
+            raise GrokResponseParseError("Gemini batch response missing a results array")
+
+        normalized_handles = {self._normalize_handle(influencer.handle): influencer for influencer in influencers}
+        analyses: dict[str, AIAnalysis] = {}
+        for item in results_payload:
+            if not isinstance(item, dict):
+                continue
+
+            handle_value = item.get("handle")
+            if not isinstance(handle_value, str) or not handle_value.strip():
+                continue
+
+            normalized_handle = self._normalize_handle(handle_value)
+            source_influencer = normalized_handles.get(normalized_handle)
+            if source_influencer is None:
+                continue
+
+            analysis = AIAnalysis.from_dict(
+                {
+                    "detected_language": item.get("detected_language", source_influencer.language or "unknown"),
+                    "niche": item.get("niche", "unknown"),
+                    "government_support_score": item.get("government_support_score", 0),
+                    "political_orientation": item.get("political_orientation", "unknown"),
+                    "confidence": item.get("confidence", 0.0),
+                    "summary": item.get("summary", ""),
+                    "keywords": item.get("keywords", []),
+                    "reasoning": item.get("reasoning", ""),
+                }
+            )
+            analyses[normalized_handle] = analysis
+
+        if not analyses:
+            raise GrokResponseParseError("Gemini batch response did not contain usable results")
+
+        return analyses
+
+    def _default_analysis_map(
+        self,
+        influencers: Sequence[Influencer],
+        details: str | None = None,
+    ) -> dict[str, AIAnalysis]:
+        """Create default analyses for a set of influencers."""
+        return {
+            self._normalize_handle(influencer.handle): self._default_analysis(
+                influencer,
+                "AI analysis temporarily unavailable; using default scoring only",
+                details=details,
+            )
+            for influencer in influencers
+        }
+
     @staticmethod
+    def _normalize_handle(handle: str) -> str:
+        """Normalize handles so returned results can be matched reliably."""
+        return handle.strip().lstrip("@").casefold()
+
+    @staticmethod
+    def _strip_code_fences(text: str) -> str:
+        """Remove markdown code fences if Gemini wraps the JSON response."""
+        cleaned_text = text.strip()
+        if cleaned_text.startswith("```"):
+            cleaned_text = cleaned_text.split("\n", 1)[1] if "\n" in cleaned_text else cleaned_text
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3]
+        cleaned_text = cleaned_text.strip()
+        if cleaned_text.lower().startswith("json\n"):
+            cleaned_text = cleaned_text[5:]
+        return cleaned_text.strip()
+
     def _default_analysis(
+        self,
         influencer: Influencer,
         summary: str,
         details: str | None = None,

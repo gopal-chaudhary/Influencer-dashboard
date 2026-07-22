@@ -1,4 +1,4 @@
-"""Workflow service that connects Grok analysis and scoring.
+"""Workflow service that connects Gemini analysis and scoring.
 
 This service owns the business logic for transforming raw influencers into
 ranked, evaluation-ready results. It deliberately stays independent of Streamlit
@@ -7,7 +7,6 @@ so the same logic can be reused by tests or future API endpoints.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -24,7 +23,7 @@ logger = get_logger(__name__)
 
 @dataclass(slots=True)
 class DashboardWorkflowService:
-    """Coordinate Grok analysis, scoring, ranking, and filtering."""
+    """Coordinate Gemini analysis, scoring, ranking, and filtering."""
 
     grok_service: GrokService
     scoring_service: ScoringService
@@ -42,12 +41,12 @@ class DashboardWorkflowService:
             return []
 
         logger.info("Evaluating %d influencers", len(influencers))
-        if len(influencers) == 1:
-            evaluated_influencers = [self._evaluate_influencer(influencers[0])]
-        else:
-            max_workers = min(4, len(influencers))
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                evaluated_influencers = list(executor.map(self._evaluate_influencer, influencers))
+        ai_analysis_map = self._analyze_influencers(influencers)
+
+        evaluated_influencers = [
+            self._evaluate_influencer(influencer, ai_analysis_map.get(self._normalize_handle(influencer.handle)))
+            for influencer in influencers
+        ]
 
         ranked_influencers = self._rank_evaluations(evaluated_influencers)
         logger.info("Finished evaluating %d influencers", len(ranked_influencers))
@@ -79,28 +78,49 @@ class DashboardWorkflowService:
 
         return DashboardWorkflowService._rank_evaluations(filtered_results)
 
-    def _evaluate_influencer(self, influencer: Influencer) -> EvaluatedInfluencer:
-        """Evaluate one influencer and return the bundled result object."""
-        ai_analysis = self._analyze_with_fallback(influencer)
-        score_result = self.scoring_service.score(influencer, ai_analysis)
-        return EvaluatedInfluencer(influencer=influencer, ai_analysis=ai_analysis, score_result=score_result)
-
-    def _analyze_with_fallback(self, influencer: Influencer) -> AIAnalysis:
-        """Analyze an influencer and fall back to a neutral result on failure."""
+    def _analyze_influencers(self, influencers: Sequence[Influencer]) -> dict[str, AIAnalysis]:
+        """Analyze influencers using a single Gemini batch request when possible."""
         try:
-            return self.grok_service.analyze_influencer(influencer)
+            return self.grok_service.analyze_influencers(influencers)
         except (GrokConfigurationError, GrokAPIRequestError, GrokResponseParseError) as exc:
-            logger.warning("Using fallback AI analysis for %s: %s", influencer.handle, exc)
-            return AIAnalysis(
-                detected_language=influencer.language or "unknown",
-                niche="unknown",
-                government_support_score=0,
-                political_orientation="unknown",
-                confidence=0.0,
-                summary="AI analysis temporarily unavailable; using default scoring only",
-                keywords=[],
-                reasoning=f"AI analysis temporarily unavailable; using default scoring only. Details: {exc}",
-            )
+            logger.warning("Falling back to default AI analyses for %d influencers: %s", len(influencers), exc)
+            return {
+                self._normalize_handle(influencer.handle): AIAnalysis(
+                    detected_language=influencer.language or "unknown",
+                    niche="unknown",
+                    government_support_score=0,
+                    political_orientation="unknown",
+                    confidence=0.0,
+                    summary="AI analysis temporarily unavailable; using default scoring only",
+                    keywords=[],
+                    reasoning=f"AI analysis temporarily unavailable; using default scoring only. Details: {exc}",
+                )
+                for influencer in influencers
+            }
+
+    def _evaluate_influencer(self, influencer: Influencer, ai_analysis: AIAnalysis | None) -> EvaluatedInfluencer:
+        """Evaluate one influencer and return the bundled result object."""
+        score_result = self.scoring_service.score(influencer, ai_analysis)
+        return EvaluatedInfluencer(influencer=influencer, ai_analysis=ai_analysis or self._fallback_analysis(influencer), score_result=score_result)
+
+    @staticmethod
+    def _fallback_analysis(influencer: Influencer) -> AIAnalysis:
+        """Construct a safe fallback analysis for a single influencer."""
+        return AIAnalysis(
+            detected_language=influencer.language or "unknown",
+            niche="unknown",
+            government_support_score=0,
+            political_orientation="unknown",
+            confidence=0.0,
+            summary="AI analysis temporarily unavailable; using default scoring only",
+            keywords=[],
+            reasoning="AI analysis temporarily unavailable; using default scoring only",
+        )
+
+    @staticmethod
+    def _normalize_handle(handle: str) -> str:
+        """Normalize handles so returned analyses can be matched reliably."""
+        return handle.strip().lstrip("@").casefold()
 
     @staticmethod
     def _rank_evaluations(evaluated_influencers: Sequence[EvaluatedInfluencer]) -> list[EvaluatedInfluencer]:

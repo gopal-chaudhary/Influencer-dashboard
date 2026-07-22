@@ -34,19 +34,18 @@ class DashboardWorkflowServiceTests(unittest.TestCase):
             ),
         ]
 
-        def analyze_influencer(influencer: Influencer) -> AIAnalysis:
-            if influencer.handle == "high":
-                return AIAnalysis(
-                    detected_language="English",
-                    niche="Fashion",
-                    government_support_score=90,
-                    political_orientation="supportive",
-                    confidence=0.8,
-                    summary="High confidence support.",
-                    keywords=["fashion"],
-                    reasoning="Positive policy mentions.",
-                )
-            return AIAnalysis(
+        analyses = {
+            "high": AIAnalysis(
+                detected_language="English",
+                niche="Fashion",
+                government_support_score=90,
+                political_orientation="supportive",
+                confidence=0.8,
+                summary="High confidence support.",
+                keywords=["fashion"],
+                reasoning="Positive policy mentions.",
+            ),
+            "low": AIAnalysis(
                 detected_language="English",
                 niche="Lifestyle",
                 government_support_score=10,
@@ -55,9 +54,10 @@ class DashboardWorkflowServiceTests(unittest.TestCase):
                 summary="Low support.",
                 keywords=["lifestyle"],
                 reasoning="Few relevant mentions.",
-            )
+            ),
+        }
 
-        grok_service = SimpleNamespace(analyze_influencer=MagicMock(side_effect=analyze_influencer))
+        grok_service = SimpleNamespace(analyze_influencers=MagicMock(return_value=analyses))
         service = DashboardWorkflowService(
             grok_service=cast(GrokService, grok_service),
             scoring_service=ScoringService(),
@@ -65,7 +65,7 @@ class DashboardWorkflowServiceTests(unittest.TestCase):
 
         ranked_results = service.evaluate_influencers(influencers)
 
-        self.assertEqual(grok_service.analyze_influencer.call_count, 2)
+        self.assertEqual(grok_service.analyze_influencers.call_count, 1)
         self.assertEqual(ranked_results[0].rank, 1)
         self.assertEqual(ranked_results[0].influencer.handle, "high")
         self.assertEqual(ranked_results[1].rank, 2)

@@ -24,13 +24,44 @@ class GrokServiceTests(unittest.TestCase):
 
         analysis = service.analyze_influencer(influencer)
 
-        self.assertEqual(analysis.summary, "AI analysis temporarily unavailable; using default scoring only")
+        self.assertEqual(
+            analysis.summary,
+            "AI analysis temporarily unavailable; using default scoring only",
+        )
         self.assertEqual(analysis.niche, "unknown")
         self.assertEqual(analysis.government_support_score, 0)
 
+    def test_batch_analysis_returns_mapping(self) -> None:
+        config = GrokConfig(api_key="test-key", model="gemini-2.5-flash")
+        service = GrokService(
+            config=config,
+            client=self._fake_client(
+                '{"results":[{"handle":"alice","detected_language":"English","niche":"Fashion","government_support_score":80,"political_orientation":"supportive","confidence":0.8,"summary":"ok","keywords":["fashion"],"reasoning":"reason"}]}'
+            ),
+        )
+        influencer = Influencer(
+            name="Alice",
+            handle="alice",
+            platform="Instagram",
+            bio="Fashion creator",
+            recent_content=["recent post"],
+            followers=100,
+            language="English",
+        )
+
+        analyses = service.analyze_influencers([influencer])
+
+        self.assertIn("alice", analyses)
+        self.assertEqual(analyses["alice"].niche, "Fashion")
+
     def test_build_prompt_contains_required_analysis_context(self) -> None:
         config = GrokConfig(api_key="test-key", model="gemini-2.5-flash")
-        service = GrokService(config=config, client=self._fake_client('{"detected_language":"English","niche":"Fashion","government_support_score":80,"political_orientation":"supportive","confidence":0.8,"summary":"ok","keywords":["fashion"],"reasoning":"reason"}'))
+        service = GrokService(
+            config=config,
+            client=self._fake_client(
+                '{"results":[{"handle":"alice","detected_language":"English","niche":"Fashion","government_support_score":80,"political_orientation":"supportive","confidence":0.8,"summary":"ok","keywords":["fashion"],"reasoning":"reason"}]}'
+            ),
+        )
         influencer = Influencer(
             name="Alice",
             handle="alice",
@@ -44,9 +75,9 @@ class GrokServiceTests(unittest.TestCase):
         prompt = service._build_prompt(influencer)
 
         self.assertIn("Return JSON only", prompt)
-        self.assertIn("Analyze the following influencer profile", prompt)
+        self.assertIn("Analyze the following influencer profiles", prompt)
         self.assertIn("Alice", prompt)
-        self.assertIn("@alice", prompt)
+        self.assertIn("Handle: alice", prompt)
         self.assertIn("Fashion creator", prompt)
 
     def test_invalid_json_returns_default_analysis(self) -> None:
@@ -64,8 +95,14 @@ class GrokServiceTests(unittest.TestCase):
 
         analysis = service.analyze_influencer(influencer)
 
-        self.assertEqual(analysis.summary, "AI analysis temporarily unavailable; using default scoring only")
-        self.assertEqual(analysis.reasoning, "Gemini returned invalid JSON: Expecting value: line 1 column 1 (char 0)")
+        self.assertEqual(
+            analysis.summary,
+            "AI analysis temporarily unavailable; using default scoring only",
+        )
+        self.assertEqual(
+            analysis.reasoning,
+            "Expecting value: line 1 column 1 (char 0)",
+        )
 
     @staticmethod
     def _fake_client(content: str):

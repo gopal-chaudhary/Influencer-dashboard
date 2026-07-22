@@ -83,7 +83,7 @@ cp .env.example .env
 
 Required variables:
 
-- `GEMINI_API_KEY`
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY`
 - `GEMINI_MODEL`
 
 Optional tuning variables:
@@ -184,6 +184,6 @@ A sample workbook is available at:
 
 ## Troubleshooting
 
-- **Missing API key**: verify `GEMINI_API_KEY` is set in `.env`.
+- **Missing API key**: verify `GEMINI_API_KEY` or `GOOGLE_API_KEY` is set in `.env`.
 - **No results after upload**: check whether filters are too restrictive.
 - **Export looks empty**: confirm that the filtered result list contains rows.
