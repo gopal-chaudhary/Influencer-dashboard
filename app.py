@@ -12,7 +12,7 @@ from ui.upload_section import render_upload_section
 
 st.set_page_config(
     page_title="Influencer Discovery Dashboard",
-    page_icon="🔍",
+    page_icon="",
     layout="wide",
 )
 

@@ -1,5 +1,6 @@
 """Configuration package for the Influencer Discovery Dashboard."""
 
+from .grok_config import GrokConfig
 from .scoring_config import (
     AI_WEIGHT,
     BIO_KEYWORDS,
@@ -23,6 +24,7 @@ __all__ = [
     "ENGAGEMENT_WEIGHT",
     "FOLLOWER_CAP",
     "FOLLOWER_WEIGHT",
+    "GrokConfig",
     "LANGUAGE_WEIGHT",
     "NICHE_WEIGHT",
     "TARGET_LANGUAGES",
