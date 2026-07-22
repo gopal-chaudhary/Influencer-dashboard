@@ -48,6 +48,10 @@ class GrokAPIRequestError(GrokServiceError):
     """Raised when Grok returns an API or transport error after retries."""
 
 
+class GrokModelNotFoundError(GrokAPIRequestError):
+    """Raised when a configured Grok model cannot be found."""
+
+
 @dataclass(slots=True)
 class GrokService:
     """Analyze influencer profiles using xAI's OpenAI-compatible API."""
@@ -75,18 +79,37 @@ class GrokService:
         """Analyze one influencer profile and return structured AI insights."""
         prompt = self._build_prompt(influencer)
         logger.debug("Analyzing influencer '%s' with Grok", influencer.handle)
-        response_text = self._execute_request(prompt)
-        try:
-            analysis = AIAnalysis.from_json(response_text)
-            logger.debug("Grok analysis completed for '%s'", influencer.handle)
-            return analysis
-        except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            logger.exception("Failed to parse Grok JSON response for '%s'", influencer.handle)
-            raise GrokResponseParseError(
-                "Grok returned invalid JSON for the influencer analysis"
-            ) from exc
 
-    def _execute_request(self, prompt: str) -> str:
+        last_model_error: GrokModelNotFoundError | None = None
+        for model_name in self._model_candidates():
+            try:
+                response_text = self._execute_request(prompt, model_name)
+                analysis = AIAnalysis.from_json(response_text)
+                logger.debug("Grok analysis completed for '%s' using model '%s'", influencer.handle, model_name)
+                return analysis
+            except GrokModelNotFoundError as exc:
+                last_model_error = exc
+                logger.warning(
+                    "Grok model '%s' not found for '%s'; trying next candidate",
+                    model_name,
+                    influencer.handle,
+                )
+                continue
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                logger.exception("Failed to parse Grok JSON response for '%s'", influencer.handle)
+                raise GrokResponseParseError(
+                    "Grok returned invalid JSON for the influencer analysis"
+                ) from exc
+
+        if last_model_error is not None:
+            raise GrokAPIRequestError(
+                "No configured Grok model was available. "
+                f"Tried: {', '.join(self._model_candidates())}."
+            ) from last_model_error
+
+        raise GrokAPIRequestError("Grok request failed without a response")
+
+    def _execute_request(self, prompt: str, model_name: str) -> str:
         """Execute the model call with retries for transient failures."""
         config = self.config
         assert config is not None
@@ -105,9 +128,14 @@ class GrokService:
         try:
             for attempt in retrying:
                 with attempt:
-                    return self._create_completion(prompt)
-        except (AuthenticationError, BadRequestError, ConflictError, UnprocessableEntityError) as exc:
+                    return self._create_completion(prompt, model_name)
+        except (AuthenticationError, ConflictError, UnprocessableEntityError) as exc:
             logger.error("Non-retryable Grok API error: %s", exc)
+            raise GrokAPIRequestError(self._format_error_message(exc)) from exc
+        except BadRequestError as exc:
+            if self._is_model_not_found_error(exc):
+                raise GrokModelNotFoundError(self._format_error_message(exc)) from exc
+            logger.error("Grok bad request: %s", exc)
             raise GrokAPIRequestError(self._format_error_message(exc)) from exc
         except OpenAIError as exc:
             logger.error("Grok request failed after retries: %s", exc)
@@ -115,13 +143,13 @@ class GrokService:
 
         raise GrokAPIRequestError("Grok request failed without a response")
 
-    def _create_completion(self, prompt: str) -> str:
+    def _create_completion(self, prompt: str, model_name: str) -> str:
         """Make the actual API request and return the raw assistant content."""
         assert self.client is not None
         config = self.config
         assert config is not None
         response = self.client.chat.completions.create(
-            model=config.model,
+            model=model_name,
             messages=[
                 {
                     "role": "system",
@@ -173,6 +201,12 @@ class GrokService:
             f"Followers: {influencer.followers}\n"
         )
 
+    def _model_candidates(self) -> tuple[str, ...]:
+        """Return the configured model followed by fallbacks."""
+        config = self.config
+        assert config is not None
+        return config.model_candidates or (config.model,)
+
     @staticmethod
     def _retryable_exceptions() -> tuple[type[BaseException], ...]:
         """Return exception types that should be retried."""
@@ -183,6 +217,12 @@ class GrokService:
             InternalServerError,
             RateLimitError,
         )
+
+    @staticmethod
+    def _is_model_not_found_error(error: BadRequestError) -> bool:
+        """Detect the model-not-found case from the OpenAI error payload."""
+        error_text = str(error).lower()
+        return "model not found" in error_text or "invalid-argument" in error_text
 
     @staticmethod
     def _format_error_message(error: BaseException) -> str:

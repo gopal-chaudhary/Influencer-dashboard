@@ -11,13 +11,13 @@ from services.grok_service import GrokConfigurationError, GrokResponseParseError
 
 class GrokServiceTests(unittest.TestCase):
     def test_missing_api_key_raises_configuration_error(self) -> None:
-        config = GrokConfig(api_key=None, base_url="https://api.x.ai/v1", model="grok-2-latest")
+        config = GrokConfig(api_key=None, base_url="https://api.x.ai/v1", model="grok-4-latest")
 
         with self.assertRaises(GrokConfigurationError):
             GrokService(config=config, client=cast(Any, object()))
 
     def test_build_prompt_contains_required_analysis_context(self) -> None:
-        config = GrokConfig(api_key="test-key", base_url="https://api.x.ai/v1", model="grok-2-latest")
+        config = GrokConfig(api_key="test-key", base_url="https://api.x.ai/v1", model="grok-4-latest")
         service = GrokService(config=config, client=cast(Any, self._fake_client("{}")))
         influencer = Influencer(
             name="Alice",
@@ -38,7 +38,7 @@ class GrokServiceTests(unittest.TestCase):
         self.assertIn("Fashion creator", prompt)
 
     def test_invalid_json_raises_parse_error(self) -> None:
-        config = GrokConfig(api_key="test-key", base_url="https://api.x.ai/v1", model="grok-2-latest")
+        config = GrokConfig(api_key="test-key", base_url="https://api.x.ai/v1", model="grok-4-latest")
         service = GrokService(config=config, client=cast(Any, self._fake_client("not json")))
         influencer = Influencer(
             name="Alice",
