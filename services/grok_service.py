@@ -1,27 +1,17 @@
-"""Reusable service for analyzing influencers with xAI Grok.
+"""Reusable service for analyzing influencers with Google Gemini.
 
-The service is kept independent of Streamlit so it can be reused by the UI,
-background jobs, tests, or future API endpoints.
+The service keeps the same public interface as the previous AI integration so
+the rest of the architecture remains unchanged.
 """
 
 from __future__ import annotations
 
+import importlib
 import json
 from dataclasses import dataclass
+from types import ModuleType
+from typing import Any
 
-from openai import (
-    APIConnectionError,
-    APIError,
-    APITimeoutError,
-    AuthenticationError,
-    BadRequestError,
-    ConflictError,
-    InternalServerError,
-    OpenAI,
-    OpenAIError,
-    RateLimitError,
-    UnprocessableEntityError,
-)
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config.grok_config import GrokConfig
@@ -33,87 +23,97 @@ logger = get_logger(__name__)
 
 
 class GrokServiceError(Exception):
-    """Base class for Grok service errors."""
+    """Base class for AI service errors."""
 
 
 class GrokConfigurationError(GrokServiceError):
-    """Raised when the Grok service is missing required configuration."""
+    """Raised when the AI service is missing required configuration."""
 
 
 class GrokResponseParseError(GrokServiceError):
-    """Raised when the Grok response cannot be parsed as valid JSON."""
+    """Raised when the AI response cannot be parsed as valid JSON."""
 
 
 class GrokAPIRequestError(GrokServiceError):
-    """Raised when Grok returns an API or transport error after retries."""
-
-
-class GrokModelNotFoundError(GrokAPIRequestError):
-    """Raised when a configured Grok model cannot be found."""
+    """Raised when the AI provider returns an API or transport error."""
 
 
 @dataclass(slots=True)
 class GrokService:
-    """Analyze influencer profiles using xAI's OpenAI-compatible API."""
+    """Analyze influencer profiles using Google Gemini."""
 
     config: GrokConfig | None = None
-    client: OpenAI | None = None
+    client: Any | None = None
 
     def __post_init__(self) -> None:
-        """Load configuration and build a client if needed."""
+        """Load configuration and build a Gemini client if possible."""
         config = self.config or GrokConfig.from_env()
         self.config = config
 
         if not config.has_api_key:
-            logger.error("Missing xAI API key in Grok configuration")
-            raise GrokConfigurationError("Missing xAI API key. Set XAI_API_KEY in the .env file.")
+            logger.warning("Missing Gemini API key; AI analysis will use defaults")
+            self.client = None
+            return
 
         if self.client is None:
-            self.client = OpenAI(
-                api_key=config.api_key,
-                base_url=config.base_url,
-                timeout=config.timeout_seconds,
-            )
+            if config.api_key is None:
+                logger.warning("Gemini API key is unavailable; AI analysis will use defaults")
+                self.client = None
+                return
+            self.client = self._build_client(config.api_key)
 
     def analyze_influencer(self, influencer: Influencer) -> AIAnalysis:
         """Analyze one influencer profile and return structured AI insights."""
         prompt = self._build_prompt(influencer)
-        logger.debug("Analyzing influencer '%s' with Grok", influencer.handle)
+        logger.debug("Analyzing influencer '%s' with Gemini", influencer.handle)
 
-        last_model_error: GrokModelNotFoundError | None = None
-        for model_name in self._model_candidates():
-            try:
-                response_text = self._execute_request(prompt, model_name)
-                analysis = AIAnalysis.from_json(response_text)
-                logger.debug("Grok analysis completed for '%s' using model '%s'", influencer.handle, model_name)
-                return analysis
-            except GrokModelNotFoundError as exc:
-                last_model_error = exc
-                logger.warning(
-                    "Grok model '%s' not found for '%s'; trying next candidate",
-                    model_name,
-                    influencer.handle,
-                )
-                continue
-            except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                logger.exception("Failed to parse Grok JSON response for '%s'", influencer.handle)
-                raise GrokResponseParseError(
-                    "Grok returned invalid JSON for the influencer analysis"
-                ) from exc
+        response_text = self._execute_request(prompt)
+        if not response_text:
+            return self._default_analysis(
+                influencer,
+                "AI analysis temporarily unavailable; using default scoring only",
+            )
 
-        if last_model_error is not None:
-            raise GrokAPIRequestError(
-                "No configured Grok model was available. "
-                f"Tried: {', '.join(self._model_candidates())}."
-            ) from last_model_error
+        try:
+            analysis = AIAnalysis.from_json(response_text)
+            logger.debug("Gemini analysis completed for '%s'", influencer.handle)
+            return analysis
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("Failed to parse Gemini JSON response for '%s': %s", influencer.handle, exc)
+            return self._default_analysis(
+                influencer,
+                "AI analysis temporarily unavailable; using default scoring only",
+                details=f"Gemini returned invalid JSON: {exc}",
+            )
 
-        raise GrokAPIRequestError("Grok request failed without a response")
+    def _build_client(self, api_key: str) -> Any | None:
+        """Create a Gemini client from the official SDK if installed."""
+        try:
+            genai_module = importlib.import_module("google.genai")
+        except ModuleNotFoundError as exc:
+            logger.error("Gemini SDK is not installed: %s", exc)
+            return None
 
-    def _execute_request(self, prompt: str, model_name: str) -> str:
+        client_factory = getattr(genai_module, "Client", None)
+        if client_factory is None:
+            logger.error("Gemini SDK Client class is unavailable")
+            return None
+
+        try:
+            return client_factory(api_key=api_key)
+        except Exception as exc:  # pragma: no cover - defensive SDK initialization guard
+            logger.error("Failed to initialize Gemini client: %s", exc)
+            return None
+
+    def _execute_request(self, prompt: str) -> str | None:
         """Execute the model call with retries for transient failures."""
         config = self.config
         assert config is not None
-        retryable_exceptions = self._retryable_exceptions()
+
+        if self.client is None:
+            logger.warning("Gemini client is unavailable; returning default analysis")
+            return None
+
         retrying = Retrying(
             stop=stop_after_attempt(config.max_retries),
             wait=wait_exponential(
@@ -121,55 +121,75 @@ class GrokService:
                 min=config.retry_initial_delay_seconds,
                 max=config.retry_max_delay_seconds,
             ),
-            retry=retry_if_exception_type(retryable_exceptions),
+            retry=retry_if_exception_type(Exception),
             reraise=True,
         )
 
-        try:
-            for attempt in retrying:
-                with attempt:
-                    return self._create_completion(prompt, model_name)
-        except (AuthenticationError, ConflictError, UnprocessableEntityError) as exc:
-            logger.error("Non-retryable Grok API error: %s", exc)
-            raise GrokAPIRequestError(self._format_error_message(exc)) from exc
-        except BadRequestError as exc:
-            if self._is_model_not_found_error(exc):
-                raise GrokModelNotFoundError(self._format_error_message(exc)) from exc
-            logger.error("Grok bad request: %s", exc)
-            raise GrokAPIRequestError(self._format_error_message(exc)) from exc
-        except OpenAIError as exc:
-            logger.error("Grok request failed after retries: %s", exc)
-            raise GrokAPIRequestError(self._format_error_message(exc)) from exc
+        last_error: Exception | None = None
+        for attempt in retrying:
+            with attempt:
+                try:
+                    return self._create_completion(prompt)
+                except Exception as exc:  # pragma: no cover - SDK/network failures are environment-dependent
+                    last_error = exc
+                    logger.warning("Gemini request attempt failed: %s", exc)
+                    raise
 
-        raise GrokAPIRequestError("Grok request failed without a response")
+        if last_error is not None:
+            logger.error("Gemini request failed after retries: %s", last_error)
+        return None
 
-    def _create_completion(self, prompt: str, model_name: str) -> str:
+    def _create_completion(self, prompt: str) -> str:
         """Make the actual API request and return the raw assistant content."""
-        assert self.client is not None
+        client = self.client
         config = self.config
+        assert client is not None
         assert config is not None
-        response = self.client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an analyst for an influencer discovery system. "
-                        "Return JSON only. Do not include markdown, explanations, or code fences."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-            response_format={"type": "json_object"},
+
+        sdk_types = self._load_types_module()
+        response_config = None
+        if sdk_types is not None:
+            response_config = sdk_types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=config.temperature,
+                max_output_tokens=config.max_output_tokens,
+            )
+
+        response = client.models.generate_content(
+            model=config.model,
+            contents=prompt,
+            config=response_config,
         )
 
-        content = response.choices[0].message.content if response.choices else None
+        content = self._extract_text(response)
         if not content or not content.strip():
-            logger.warning("Grok returned an empty response")
-            raise GrokResponseParseError("Grok returned an empty response")
+            raise GrokResponseParseError("Gemini returned an empty response")
         return content
+
+    @staticmethod
+    def _load_types_module() -> ModuleType | None:
+        """Load Gemini SDK types if available."""
+        try:
+            return importlib.import_module("google.genai.types")
+        except ModuleNotFoundError:
+            return None
+
+    @staticmethod
+    def _extract_text(response: Any) -> str:
+        """Extract text from a Gemini response object."""
+        text = getattr(response, "text", None)
+        if isinstance(text, str):
+            return text
+
+        candidates = getattr(response, "candidates", None) or []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) or []
+            for part in parts:
+                part_text = getattr(part, "text", None)
+                if isinstance(part_text, str) and part_text.strip():
+                    return part_text
+        return ""
 
     def _build_prompt(self, influencer: Influencer) -> str:
         """Build a prompt that asks for structured JSON analysis only."""
@@ -201,30 +221,20 @@ class GrokService:
             f"Followers: {influencer.followers}\n"
         )
 
-    def _model_candidates(self) -> tuple[str, ...]:
-        """Return the configured model followed by fallbacks."""
-        config = self.config
-        assert config is not None
-        return config.model_candidates or (config.model,)
-
     @staticmethod
-    def _retryable_exceptions() -> tuple[type[BaseException], ...]:
-        """Return exception types that should be retried."""
-        return (
-            APIConnectionError,
-            APIError,
-            APITimeoutError,
-            InternalServerError,
-            RateLimitError,
+    def _default_analysis(
+        influencer: Influencer,
+        summary: str,
+        details: str | None = None,
+    ) -> AIAnalysis:
+        """Build a safe fallback AI analysis object."""
+        return AIAnalysis(
+            detected_language=influencer.language or "unknown",
+            niche="unknown",
+            government_support_score=0,
+            political_orientation="unknown",
+            confidence=0.0,
+            summary=summary,
+            keywords=[],
+            reasoning=details or summary,
         )
-
-    @staticmethod
-    def _is_model_not_found_error(error: BadRequestError) -> bool:
-        """Detect the model-not-found case from the OpenAI error payload."""
-        error_text = str(error).lower()
-        return "model not found" in error_text or "invalid-argument" in error_text
-
-    @staticmethod
-    def _format_error_message(error: BaseException) -> str:
-        """Create a consistent, user-facing error message."""
-        return f"Grok request failed: {error}"

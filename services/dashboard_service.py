@@ -97,9 +97,9 @@ class DashboardWorkflowService:
                 government_support_score=0,
                 political_orientation="unknown",
                 confidence=0.0,
-                summary=f"AI analysis unavailable: {exc}",
+                summary="AI analysis temporarily unavailable; using default scoring only",
                 keywords=[],
-                reasoning=str(exc),
+                reasoning=f"AI analysis temporarily unavailable; using default scoring only. Details: {exc}",
             )
 
     @staticmethod

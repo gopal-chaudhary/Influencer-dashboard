@@ -8,7 +8,7 @@ influencer profiles from CSV/XLSX datasets.
 1. Upload a CSV or Excel file.
 2. Parse and validate influencer rows in the repository layer.
 3. Build domain `Influencer` objects.
-4. Analyze each influencer with xAI Grok.
+4. Analyze each influencer with Google Gemini.
 5. Convert the AI output into a structured `AIAnalysis` model.
 6. Score each influencer with a rule-based scoring engine.
 7. Rank and filter the results.
@@ -18,7 +18,7 @@ influencer profiles from CSV/XLSX datasets.
 
 - CSV and Excel ingestion
 - Data validation and duplicate handling
-- Grok-powered AI analysis
+- Gemini-powered AI analysis
 - Rule-based, weighted scoring engine
 - Interactive dashboard with filters and search
 - Detailed row-level inspection
@@ -49,7 +49,7 @@ Influencer-dashboard/
 
 - `repositories/` — file ingestion and row validation
 - `models/` — domain entities and result objects
-- `services/` — Grok integration, scoring, workflow orchestration, exports
+- `services/` — Gemini integration, scoring, workflow orchestration, exports
 - `ui/` — Streamlit components only
 - `utils/` — shared helpers such as logging and exceptions
 
@@ -83,18 +83,17 @@ cp .env.example .env
 
 Required variables:
 
-- `XAI_API_KEY`
-- `XAI_BASE_URL`
-- `XAI_MODEL`
+- `GEMINI_API_KEY`
+- `GEMINI_MODEL`
 
 Optional tuning variables:
 
-- `XAI_TEMPERATURE`
-- `XAI_MAX_TOKENS`
-- `XAI_TIMEOUT_SECONDS`
-- `XAI_MAX_RETRIES`
-- `XAI_RETRY_INITIAL_DELAY_SECONDS`
-- `XAI_RETRY_MAX_DELAY_SECONDS`
+- `GEMINI_TEMPERATURE`
+- `GEMINI_MAX_OUTPUT_TOKENS`
+- `GEMINI_TIMEOUT_SECONDS`
+- `GEMINI_MAX_RETRIES`
+- `GEMINI_RETRY_INITIAL_DELAY_SECONDS`
+- `GEMINI_RETRY_MAX_DELAY_SECONDS`
 - `LOG_LEVEL`
 
 ## Run the dashboard
@@ -163,7 +162,7 @@ If you add them, reference them here with standard Markdown image links.
 
 ### Production notes
 
-- Keep the xAI API key out of source control.
+- Keep the Gemini API key out of source control.
 - Use a dedicated `.env` or secret manager for deployment.
 - Set a reasonable `LOG_LEVEL` for the runtime environment.
 
@@ -185,6 +184,6 @@ A sample workbook is available at:
 
 ## Troubleshooting
 
-- **Missing API key**: verify `XAI_API_KEY` is set in `.env`.
+- **Missing API key**: verify `GEMINI_API_KEY` is set in `.env`.
 - **No results after upload**: check whether filters are too restrictive.
 - **Export looks empty**: confirm that the filtered result list contains rows.
