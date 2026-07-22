@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from config.scoring_config import ScoringConfig
-from models import Influencer
+from models import AIAnalysis, Influencer
 from models.score_result import ScoreResult
 
 
@@ -20,21 +20,53 @@ from models.score_result import ScoreResult
 class AIScoringStrategy(Protocol):
     """Strategy interface for AI-assisted orientation scoring."""
 
-    def score(self, influencer: Influencer, config: ScoringConfig) -> tuple[float, list[str]]:
+    def score(
+        self,
+        influencer: Influencer,
+        ai_analysis: AIAnalysis | None,
+        config: ScoringConfig,
+    ) -> tuple[float, list[str]]:
         """Return a normalized score and remarks for the AI criterion."""
         ...
 
 
 @dataclass(slots=True)
+class AIAnalysisScoringStrategy:
+    """Score the AI result using the Grok analysis payload."""
+
+    def score(
+        self,
+        influencer: Influencer,
+        ai_analysis: AIAnalysis | None,
+        config: ScoringConfig,
+    ) -> tuple[float, list[str]]:
+        if ai_analysis is None:
+            return 0.0, ["AI analysis not available; AI score set to 0."]
+
+        normalized_support_score = ai_analysis.government_support_score / 100.0
+        confidence_weight = min(max(ai_analysis.confidence, 0.0), 1.0)
+        score = min(max(normalized_support_score * confidence_weight, 0.0), 1.0)
+
+        remarks = [
+            (
+                f"AI analysis: language={ai_analysis.detected_language}, "
+                f"niche={ai_analysis.niche}, orientation={ai_analysis.political_orientation}, "
+                f"support={ai_analysis.government_support_score}, confidence={ai_analysis.confidence:.2f}."
+            )
+        ]
+        return score, remarks
+
+
+@dataclass(slots=True)
 class PlaceholderAIScoringStrategy:
-    """Default AI strategy used until Grok is integrated.
+    """Fallback strategy that keeps the service operational without AI output."""
 
-    The strategy deliberately returns a neutral score and a placeholder remark so
-    the rest of the scoring engine can remain stable while the AI layer is still
-    under development.
-    """
-
-    def score(self, influencer: Influencer, config: ScoringConfig) -> tuple[float, list[str]]:
+    def score(
+        self,
+        influencer: Influencer,
+        ai_analysis: AIAnalysis | None,
+        config: ScoringConfig,
+    ) -> tuple[float, list[str]]:
         return 0.0, ["AI orientation scoring is pending Grok integration."]
 
 
@@ -47,16 +79,16 @@ class ScoringService:
         ai_scorer: AIScoringStrategy | None = None,
     ) -> None:
         self._config = config or ScoringConfig()
-        self._ai_scorer = ai_scorer or PlaceholderAIScoringStrategy()
+        self._ai_scorer = ai_scorer or AIAnalysisScoringStrategy()
 
-    def score(self, influencer: Influencer) -> ScoreResult:
+    def score(self, influencer: Influencer, ai_analysis: AIAnalysis | None = None) -> ScoreResult:
         """Return the weighted score result for one influencer."""
         language_score, matched_languages, language_remarks = self._score_language(influencer)
         niche_score, matched_niches, niche_remarks = self._score_niche(influencer)
         bio_score, bio_remarks = self._score_bio(influencer)
         follower_score, follower_remarks = self._score_followers(influencer)
         engagement_score, engagement_remarks = self._score_engagement(influencer)
-        ai_score, ai_remarks = self._score_ai_orientation(influencer)
+        ai_score, ai_remarks = self._score_ai_orientation(influencer, ai_analysis)
 
         total_weight = self._config.total_weight
         score_breakdown = {
@@ -169,9 +201,13 @@ class ScoringService:
         score = min(max(normalized_rate / self._config.engagement_rate_cap, 0.0), 1.0)
         return score, ["Engagement score calculated from available engagement data."]
 
-    def _score_ai_orientation(self, influencer: Influencer) -> tuple[float, list[str]]:
-        """Score political/supportive orientation via the AI strategy."""
-        ai_score, remarks = self._ai_scorer.score(influencer, self._config)
+    def _score_ai_orientation(
+        self,
+        influencer: Influencer,
+        ai_analysis: AIAnalysis | None,
+    ) -> tuple[float, list[str]]:
+        """Score political/supportive orientation via AI analysis."""
+        ai_score, remarks = self._ai_scorer.score(influencer, ai_analysis, self._config)
         return min(max(ai_score, 0.0), 1.0), remarks
 
     def _weighted_contribution(self, score: float, weight: float, total_weight: float) -> float:
