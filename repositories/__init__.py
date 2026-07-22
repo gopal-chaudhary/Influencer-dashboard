@@ -1,5 +1,5 @@
 """Repository package for the Influencer Discovery Dashboard."""
 
-from .influencer_repository import InfluencerRepository
+from .influencer_repository import InfluencerRepository, LoadResult
 
-__all__ = ["InfluencerRepository"]
+__all__ = ["InfluencerRepository", "LoadResult"]

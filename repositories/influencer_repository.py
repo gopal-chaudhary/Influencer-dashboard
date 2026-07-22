@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import math
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, IO
 from zipfile import BadZipFile
@@ -19,7 +20,6 @@ from pandas.errors import EmptyDataError, ParserError
 
 from models import Influencer
 from utils.exceptions import (
-    DuplicateInfluencerError,
     EmptyFileError,
     InvalidFileFormatError,
     InvalidRowError,
@@ -30,6 +30,23 @@ from utils.exceptions import (
 FileSource = str | Path | IO[Any]
 
 
+@dataclass(slots=True)
+class LoadResult:
+    """Summary of a repository load operation.
+
+    Design decision:
+    - Returning a small result object keeps the repository API expressive while
+      preserving the domain list as the primary output.
+    - The UI can display counts without needing to inspect file internals.
+    """
+
+    influencers: list[Influencer]
+    total_rows: int
+    loaded_count: int
+    duplicate_count: int
+    invalid_count: int
+
+
 class InfluencerRepository:
     """Load and validate influencer data from CSV or Excel files.
 
@@ -38,10 +55,10 @@ class InfluencerRepository:
       model.
     - It depends on the ``Influencer`` model, but not on Streamlit or any AI
       logic.
-    - Validation is explicit and fail-fast so incorrect data does not silently
-      leak into later layers.
+    - Validation is explicit, row-level issues are collected, and catastrophic
+      input problems still raise custom exceptions.
     - The public API is intentionally small: one method that returns a list of
-      domain objects.
+      domain objects, plus a richer method for UI summaries.
     """
 
     REQUIRED_COLUMNS: tuple[str, ...] = (
@@ -68,9 +85,14 @@ class InfluencerRepository:
             InvalidFileFormatError: If the file cannot be read as CSV or Excel.
             EmptyFileError: If the file has no rows or no usable data.
             MissingColumnsError: If any required columns are absent.
-            InvalidRowError: If a row contains invalid data.
-            DuplicateInfluencerError: If the same handle/platform pair appears
-                more than once.
+        """
+        return self.load_with_stats(file_source).influencers
+
+    def load_with_stats(self, file_source: FileSource) -> LoadResult:
+        """Load influencers and return summary statistics.
+
+        The repository is intentionally tolerant of row-level data issues so the
+        UI can show a useful preview for partial datasets.
         """
         dataframe = self._read_dataframe(file_source)
         dataframe = self._normalize_columns(dataframe)
@@ -81,24 +103,32 @@ class InfluencerRepository:
 
         influencers: list[Influencer] = []
         seen_keys: dict[tuple[str, str], int] = {}
+        duplicate_count = 0
+        invalid_count = 0
 
         for row_number, row in enumerate(dataframe.to_dict(orient="records"), start=2):
-            influencer = self._row_to_influencer(row, row_number=row_number)
-            duplicate_key = self._duplicate_key(influencer.handle, influencer.platform)
+            try:
+                influencer = self._row_to_influencer(row, row_number=row_number)
+            except InvalidRowError:
+                invalid_count += 1
+                continue
 
+            duplicate_key = self._duplicate_key(influencer.handle, influencer.platform)
             first_seen_row = seen_keys.get(duplicate_key)
             if first_seen_row is not None:
-                raise DuplicateInfluencerError(
-                    handle=influencer.handle,
-                    platform=influencer.platform,
-                    row_number=row_number,
-                    first_row_number=first_seen_row,
-                )
+                duplicate_count += 1
+                continue
 
             seen_keys[duplicate_key] = row_number
             influencers.append(influencer)
 
-        return influencers
+        return LoadResult(
+            influencers=influencers,
+            total_rows=len(dataframe.index),
+            loaded_count=len(influencers),
+            duplicate_count=duplicate_count,
+            invalid_count=invalid_count,
+        )
 
     def _read_dataframe(self, file_source: FileSource) -> pd.DataFrame:
         """Read the source into a pandas DataFrame.
