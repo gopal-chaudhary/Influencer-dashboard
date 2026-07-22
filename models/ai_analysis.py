@@ -1,4 +1,4 @@
-"""Structured AI analysis model returned by the Grok service."""
+"""Structured AI analysis model returned by the Gemini service."""
 
 from __future__ import annotations
 

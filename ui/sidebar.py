@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from config.gemini_config import GrokConfig
+from config.gemini_config import GeminiConfig
 from repositories.influencer_repository import LoadResult
 
 
@@ -45,7 +45,7 @@ def render_sidebar(result: LoadResult | None) -> None:
         elif st.session_state.get("gemini_api_key"):
             st.info("Using previously entered API key")
         else:
-            default_config = GrokConfig.from_env()
+            default_config = GeminiConfig.from_env()
             if default_config.has_api_key:
                 st.success("✓ Using environment variable API key")
             else:

@@ -14,7 +14,7 @@ from utils import get_logger
 
 from config.scoring_config import ScoringConfig
 from models import AIAnalysis, DashboardFilters, EvaluatedInfluencer, Influencer
-from services.gemini_service import GrokAPIRequestError, GrokConfigurationError, GrokResponseParseError, GrokService
+from services.gemini_service import GeminiAPIRequestError, GeminiConfigurationError, GeminiResponseParseError, GeminiService
 from services.scoring_service import ScoringService
 
 
@@ -25,15 +25,15 @@ logger = get_logger(__name__)
 class DashboardWorkflowService:
     """Coordinate Gemini analysis, scoring, ranking, and filtering."""
 
-    grok_service: GrokService
+    gemini_service: GeminiService
     scoring_service: ScoringService
 
     @classmethod
     def create_default(cls) -> "DashboardWorkflowService":
         """Create a workflow service using the project's default configuration."""
-        grok_service = GrokService()
+        gemini_service = GeminiService()
         scoring_service = ScoringService(ScoringConfig())
-        return cls(grok_service=grok_service, scoring_service=scoring_service)
+        return cls(gemini_service=gemini_service, scoring_service=scoring_service)
 
     def evaluate_influencers(self, influencers: Sequence[Influencer]) -> list[EvaluatedInfluencer]:
         """Analyze and score influencers using a two-tier approach.
@@ -142,8 +142,8 @@ class DashboardWorkflowService:
     def _analyze_influencers(self, influencers: Sequence[Influencer]) -> dict[str, AIAnalysis]:
         """Analyze influencers using a single Gemini batch request when possible."""
         try:
-            return self.grok_service.analyze_influencers(influencers)
-        except (GrokConfigurationError, GrokAPIRequestError, GrokResponseParseError) as exc:
+            return self.gemini_service.analyze_influencers(influencers)
+        except (GeminiConfigurationError, GeminiAPIRequestError, GeminiResponseParseError) as exc:
             logger.warning("Falling back to default AI analyses for %d influencers: %s", len(influencers), exc)
             return {
                 self._normalize_handle(influencer.handle): AIAnalysis(

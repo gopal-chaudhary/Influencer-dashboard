@@ -67,7 +67,7 @@ class PlaceholderAIScoringStrategy:
         ai_analysis: AIAnalysis | None,
         config: ScoringConfig,
     ) -> tuple[float, list[str]]:
-        return 0.0, ["AI orientation scoring is pending Grok integration."]
+        return 0.0, ["AI orientation scoring is pending Gemini integration."]
 
 
 class ScoringService:

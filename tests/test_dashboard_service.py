@@ -7,12 +7,12 @@ from unittest.mock import MagicMock
 
 from models import AIAnalysis, DashboardFilters, Influencer
 from services.dashboard_service import DashboardWorkflowService
-from services.gemini_service import GrokService
+from services.gemini_service import GeminiService
 from services.scoring_service import ScoringService
 
 
 class DashboardWorkflowServiceTests(unittest.TestCase):
-    def test_evaluate_influencers_ranks_results_and_calls_grok_once(self) -> None:
+    def test_evaluate_influencers_ranks_results_and_calls_gemini_once(self) -> None:
         influencers = [
             Influencer(
                 name="High Score",
@@ -57,15 +57,15 @@ class DashboardWorkflowServiceTests(unittest.TestCase):
             ),
         }
 
-        grok_service = SimpleNamespace(analyze_influencers=MagicMock(return_value=analyses))
+        gemini_service = SimpleNamespace(analyze_influencers=MagicMock(return_value=analyses))
         service = DashboardWorkflowService(
-            grok_service=cast(GrokService, grok_service),
+            gemini_service=cast(GeminiService, gemini_service),
             scoring_service=ScoringService(),
         )
 
         ranked_results = service.evaluate_influencers(influencers)
 
-        self.assertEqual(grok_service.analyze_influencers.call_count, 1)
+        self.assertEqual(gemini_service.analyze_influencers.call_count, 1)
         self.assertEqual(ranked_results[0].rank, 1)
         self.assertEqual(ranked_results[0].influencer.handle, "high")
         self.assertEqual(ranked_results[1].rank, 2)

@@ -1,6 +1,6 @@
 """Configuration package for the Influencer Discovery Dashboard."""
 
-from .gemini_config import GrokConfig
+from .gemini_config import GeminiConfig
 from .scoring_config import (
     AI_WEIGHT,
     BIO_KEYWORDS,
@@ -24,7 +24,7 @@ __all__ = [
     "ENGAGEMENT_WEIGHT",
     "FOLLOWER_CAP",
     "FOLLOWER_WEIGHT",
-    "GrokConfig",
+    "GeminiConfig",
     "LANGUAGE_WEIGHT",
     "NICHE_WEIGHT",
     "TARGET_LANGUAGES",

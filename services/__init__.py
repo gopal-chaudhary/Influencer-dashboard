@@ -3,10 +3,10 @@
 from .dashboard_service import DashboardWorkflowService
 from .export_service import ExportArtifacts, ExportService
 from .gemini_service import (
-    GrokAPIRequestError,
-    GrokConfigurationError,
-    GrokResponseParseError,
-    GrokService,
+    GeminiAPIRequestError,
+    GeminiConfigurationError,
+    GeminiResponseParseError,
+    GeminiService,
 )
 from .scoring_service import (
     AIScoringStrategy,
@@ -21,10 +21,10 @@ __all__ = [
     "DashboardWorkflowService",
     "ExportArtifacts",
     "ExportService",
-    "GrokAPIRequestError",
-    "GrokConfigurationError",
-    "GrokResponseParseError",
-    "GrokService",
+    "GeminiAPIRequestError",
+    "GeminiConfigurationError",
+    "GeminiResponseParseError",
+    "GeminiService",
     "PlaceholderAIScoringStrategy",
     "ScoringService",
 ]

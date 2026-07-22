@@ -7,12 +7,12 @@ import json
 
 import streamlit as st
 
-from config.gemini_config import GrokConfig
+from config.gemini_config import GeminiConfig
 from config.scoring_config import ScoringConfig
 from repositories.influencer_repository import InfluencerRepository
 from services.dashboard_service import DashboardWorkflowService
 from services.export_service import ExportService
-from services.gemini_service import GrokConfigurationError, GrokService
+from services.gemini_service import GeminiConfigurationError, GeminiService
 from services.scoring_service import ScoringService
 from ui.dashboard import render_dashboard
 from ui.filters import render_filters_sidebar
@@ -71,16 +71,16 @@ try:
             api_key = st.session_state.get("gemini_api_key")
             if api_key:
                 # Use custom API key
-                custom_config = GrokConfig.with_api_key(api_key)
-                grok_service = GrokService(config=custom_config)
+                custom_config = GeminiConfig.with_api_key(api_key)
+                gemini_service = GeminiService(config=custom_config)
                 workflow_service = DashboardWorkflowService(
-                    grok_service=grok_service,
+                    gemini_service=gemini_service,
                     scoring_service=ScoringService(ScoringConfig()),
                 )
             else:
                 # Use default configuration (from environment or .env)
                 workflow_service = DashboardWorkflowService.create_default()
-        except GrokConfigurationError as exc:
+        except GeminiConfigurationError as exc:
             st.session_state["workflow_error"] = str(exc)
             logger.error("Unable to create workflow service: %s", exc)
             st.error(str(exc))

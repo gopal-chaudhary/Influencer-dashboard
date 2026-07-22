@@ -14,7 +14,7 @@ from typing import Any, Sequence
 
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from config.gemini_config import GrokConfig
+from config.gemini_config import GeminiConfig
 from models import AIAnalysis, Influencer
 from utils import get_logger
 
@@ -22,32 +22,32 @@ from utils import get_logger
 logger = get_logger(__name__)
 
 
-class GrokServiceError(Exception):
+class GeminiServiceError(Exception):
     """Base class for AI service errors."""
 
 
-class GrokConfigurationError(GrokServiceError):
+class GeminiConfigurationError(GeminiServiceError):
     """Raised when the AI service is missing required configuration."""
 
 
-class GrokResponseParseError(GrokServiceError):
+class GeminiResponseParseError(GeminiServiceError):
     """Raised when the AI response cannot be parsed as valid JSON."""
 
 
-class GrokAPIRequestError(GrokServiceError):
+class GeminiAPIRequestError(GeminiServiceError):
     """Raised when the AI provider returns an API or transport error."""
 
 
 @dataclass(slots=True)
-class GrokService:
+class GeminiService:
     """Analyze influencer profiles using Google Gemini."""
 
-    config: GrokConfig | None = None
+    config: GeminiConfig | None = None
     client: Any | None = None
 
     def __post_init__(self) -> None:
         """Load configuration and build a Gemini client if possible."""
-        config = self.config or GrokConfig.from_env()
+        config = self.config or GeminiConfig.from_env()
         self.config = config
 
         if not config.has_api_key:
@@ -93,7 +93,7 @@ class GrokService:
                 return self._default_analysis_map(influencers)
 
             return self._parse_batch_response(response_text, influencers)
-        except GrokResponseParseError as exc:
+        except GeminiResponseParseError as exc:
             logger.warning("Gemini batch response could not be parsed: %s", exc)
             return self._default_analysis_map(influencers, details=str(exc))
         except Exception as exc:  # pragma: no cover - environment-specific SDK failures
@@ -180,24 +180,20 @@ class GrokService:
         assert client is not None
         assert config is not None
 
-        sdk_types = self._load_types_module()
-        response_config = None
-        if sdk_types is not None:
-            response_config = sdk_types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=config.temperature,
-                max_output_tokens=config.max_output_tokens,
+        if hasattr(client, "interactions") and callable(getattr(client.interactions, "create", None)):
+            response = client.interactions.create(
+                model=model_name,
+                input=prompt,
+                timeout=config.timeout_seconds,
             )
-
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=response_config,
-        )
+        else:
+            raise GeminiServiceError(
+                "Gemini SDK client does not support interactions.create; ensure google-genai is installed and up to date"
+            )
 
         content = self._extract_text(response)
         if not content or not content.strip():
-            raise GrokResponseParseError("Gemini returned an empty response")
+            raise GeminiResponseParseError("Gemini returned an empty response")
         return content
 
     @staticmethod
@@ -207,18 +203,14 @@ class GrokService:
         return "not_found" in error_text or "model" in error_text and "not" in error_text and "available" in error_text
 
     @staticmethod
-    def _load_types_module() -> ModuleType | None:
-        """Load Gemini SDK types if available."""
-        try:
-            return importlib.import_module("google.genai.types")
-        except ModuleNotFoundError:
-            return None
-
-    @staticmethod
     def _extract_text(response: Any) -> str:
         """Extract text from a Gemini response object."""
+        output_text = getattr(response, "output_text", None)
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text
+
         text = getattr(response, "text", None)
-        if isinstance(text, str):
+        if isinstance(text, str) and text.strip():
             return text
 
         candidates = getattr(response, "candidates", None) or []
@@ -298,10 +290,10 @@ class GrokService:
         elif isinstance(payload, dict):
             results_payload = payload.get("results", [])
         else:
-            raise GrokResponseParseError("Gemini batch response must be a JSON object or array")
+            raise GeminiResponseParseError("Gemini batch response must be a JSON object or array")
 
         if not isinstance(results_payload, list):
-            raise GrokResponseParseError("Gemini batch response missing a results array")
+            raise GeminiResponseParseError("Gemini batch response missing a results array")
 
         normalized_handles = {self._normalize_handle(influencer.handle): influencer for influencer in influencers}
         analyses: dict[str, AIAnalysis] = {}
@@ -333,7 +325,7 @@ class GrokService:
             analyses[normalized_handle] = analysis
 
         if not analyses:
-            raise GrokResponseParseError("Gemini batch response did not contain usable results")
+            raise GeminiResponseParseError("Gemini batch response did not contain usable results")
 
         return analyses
 

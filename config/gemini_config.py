@@ -11,14 +11,12 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 DEFAULT_GEMINI_MODEL_CANDIDATES = (
-    "gemini-2.0-flash",
-    "gemini-1.5-pro",
-    "gemini-1.5-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-2.5-flash",
 )
-DEFAULT_TEMPERATURE = 0.2
-DEFAULT_MAX_OUTPUT_TOKENS = 600
 DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_INITIAL_DELAY_SECONDS = 1.0
@@ -28,8 +26,6 @@ ENV_API_KEY = "GEMINI_API_KEY"
 ENV_GOOGLE_API_KEY = "GOOGLE_API_KEY"
 ENV_MODEL = "GEMINI_MODEL"
 ENV_MODEL_CANDIDATES = "GEMINI_MODEL_CANDIDATES"
-ENV_TEMPERATURE = "GEMINI_TEMPERATURE"
-ENV_MAX_OUTPUT_TOKENS = "GEMINI_MAX_OUTPUT_TOKENS"
 ENV_TIMEOUT_SECONDS = "GEMINI_TIMEOUT_SECONDS"
 ENV_MAX_RETRIES = "GEMINI_MAX_RETRIES"
 ENV_RETRY_INITIAL_DELAY_SECONDS = "GEMINI_RETRY_INITIAL_DELAY_SECONDS"
@@ -37,33 +33,28 @@ ENV_RETRY_MAX_DELAY_SECONDS = "GEMINI_RETRY_MAX_DELAY_SECONDS"
 
 
 @dataclass(frozen=True, slots=True)
-class GrokConfig:
+class GeminiConfig:
     """Store Gemini connection settings and retry behavior.
 
-    The class name is preserved for compatibility with the existing architecture
-    and imports, but the configuration is now entirely Gemini-based.
+    This configuration is for Google Gemini and replaces legacy provider naming.
     """
 
     api_key: str | None
     model: str = DEFAULT_GEMINI_MODEL
     model_candidates: tuple[str, ...] = DEFAULT_GEMINI_MODEL_CANDIDATES
-    temperature: float = DEFAULT_TEMPERATURE
-    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     max_retries: int = DEFAULT_MAX_RETRIES
     retry_initial_delay_seconds: float = DEFAULT_RETRY_INITIAL_DELAY_SECONDS
     retry_max_delay_seconds: float = DEFAULT_RETRY_MAX_DELAY_SECONDS
 
     @classmethod
-    def from_env(cls) -> "GrokConfig":
+    def from_env(cls) -> "GeminiConfig":
         """Load configuration from environment variables and ``.env`` files."""
         load_dotenv()
         return cls(
             api_key=os.getenv(ENV_API_KEY) or os.getenv(ENV_GOOGLE_API_KEY),
             model=os.getenv(ENV_MODEL, DEFAULT_GEMINI_MODEL),
             model_candidates=_read_model_candidates(os.getenv(ENV_MODEL_CANDIDATES)),
-            temperature=_read_float(ENV_TEMPERATURE, DEFAULT_TEMPERATURE),
-            max_output_tokens=_read_int(ENV_MAX_OUTPUT_TOKENS, DEFAULT_MAX_OUTPUT_TOKENS),
             timeout_seconds=_read_float(ENV_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS),
             max_retries=_read_int(ENV_MAX_RETRIES, DEFAULT_MAX_RETRIES),
             retry_initial_delay_seconds=_read_float(
@@ -85,10 +76,6 @@ class GrokConfig:
 
         if not self.model:
             raise ValueError("model cannot be empty")
-        if self.temperature < 0:
-            raise ValueError("temperature cannot be negative")
-        if self.max_output_tokens <= 0:
-            raise ValueError("max_output_tokens must be greater than zero")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
         if self.max_retries <= 0:
@@ -106,7 +93,7 @@ class GrokConfig:
         return bool(self.api_key)
 
     @classmethod
-    def with_api_key(cls, api_key: str | None, base_config: GrokConfig | None = None) -> "GrokConfig":
+    def with_api_key(cls, api_key: str | None, base_config: "GeminiConfig" | None = None) -> "GeminiConfig":
         """Create a new config with a custom API key.
         
         This is useful for testing with user-provided API keys in hosted environments.
@@ -116,8 +103,6 @@ class GrokConfig:
             api_key=api_key,
             model=base.model,
             model_candidates=base.model_candidates,
-            temperature=base.temperature,
-            max_output_tokens=base.max_output_tokens,
             timeout_seconds=base.timeout_seconds,
             max_retries=base.max_retries,
             retry_initial_delay_seconds=base.retry_initial_delay_seconds,
