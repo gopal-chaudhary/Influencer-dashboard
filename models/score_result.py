@@ -16,6 +16,7 @@ class ScoreResult:
 
     Attributes:
         total_score: Final normalized score on a 0-100 scale.
+        preliminary_score: Rule-based score before AI analysis (used for ranking).
         score_breakdown: Contribution of each scoring criterion to the final
             score.
         matched_languages: Languages that matched the configured targets.
@@ -24,6 +25,7 @@ class ScoreResult:
     """
 
     total_score: float
+    preliminary_score: float = 0.0
     score_breakdown: dict[str, float] = field(default_factory=dict)
     matched_languages: list[str] = field(default_factory=list)
     matched_niches: list[str] = field(default_factory=list)

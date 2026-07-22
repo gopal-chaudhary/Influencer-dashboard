@@ -17,3 +17,4 @@ class EvaluatedInfluencer:
     ai_analysis: AIAnalysis
     score_result: ScoreResult
     rank: int = 0
+    ai_analysis_performed: bool = False

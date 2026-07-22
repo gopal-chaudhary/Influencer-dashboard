@@ -110,8 +110,68 @@ class ScoringService:
             *ai_remarks,
         ]
 
+        preliminary_score = self._calculate_preliminary_score(
+            language_score, matched_languages, matched_niches, niche_score, bio_score, follower_score, engagement_score
+        )
+
         return ScoreResult(
             total_score=total_score,
+            preliminary_score=preliminary_score,
+            score_breakdown=score_breakdown,
+            matched_languages=matched_languages,
+            matched_niches=matched_niches,
+            remarks=remarks,
+        )
+
+    def score_preliminary(self, influencer: Influencer) -> ScoreResult:
+        """Return rule-based score without AI analysis (for initial ranking).
+        
+        This method computes a preliminary score using only rule-based criteria:
+        - Language match
+        - Niche keywords
+        - Bio relevance
+        - Follower count
+        - Engagement (if available)
+        
+        AI score is set to 0 and not included in the total.
+        This allows quick ranking of large datasets before expensive Gemini calls.
+        """
+        language_score, matched_languages, language_remarks = self._score_language(influencer)
+        niche_score, matched_niches, niche_remarks = self._score_niche(influencer)
+        bio_score, bio_remarks = self._score_bio(influencer)
+        follower_score, follower_remarks = self._score_followers(influencer)
+        engagement_score, engagement_remarks = self._score_engagement(influencer)
+
+        # Do NOT include AI weight in preliminary scoring
+        preliminary_weight = (
+            self._config.language_weight
+            + self._config.niche_weight
+            + self._config.bio_weight
+            + self._config.follower_weight
+            + self._config.engagement_weight
+        )
+
+        score_breakdown = {
+            "language": self._weighted_contribution(language_score, self._config.language_weight, preliminary_weight),
+            "niche": self._weighted_contribution(niche_score, self._config.niche_weight, preliminary_weight),
+            "bio": self._weighted_contribution(bio_score, self._config.bio_weight, preliminary_weight),
+            "followers": self._weighted_contribution(follower_score, self._config.follower_weight, preliminary_weight),
+            "engagement": self._weighted_contribution(engagement_score, self._config.engagement_weight, preliminary_weight),
+        }
+
+        total_score = round(sum(score_breakdown.values()), 2)
+        remarks = [
+            *language_remarks,
+            *niche_remarks,
+            *bio_remarks,
+            *follower_remarks,
+            *engagement_remarks,
+            "Preliminary rule-based score; AI analysis pending.",
+        ]
+
+        return ScoreResult(
+            total_score=total_score,
+            preliminary_score=total_score,
             score_breakdown=score_breakdown,
             matched_languages=matched_languages,
             matched_niches=matched_niches,
@@ -209,6 +269,38 @@ class ScoringService:
         """Score political/supportive orientation via AI analysis."""
         ai_score, remarks = self._ai_scorer.score(influencer, ai_analysis, self._config)
         return min(max(ai_score, 0.0), 1.0), remarks
+
+    def _calculate_preliminary_score(
+        self,
+        language_score: float,
+        matched_languages: list[str],
+        matched_niches: list[str],
+        niche_score: float,
+        bio_score: float,
+        follower_score: float,
+        engagement_score: float,
+    ) -> float:
+        """Calculate rule-based preliminary score without AI component.
+        
+        This is used for the initial ranking before Gemini calls.
+        """
+        preliminary_weight = (
+            self._config.language_weight
+            + self._config.niche_weight
+            + self._config.bio_weight
+            + self._config.follower_weight
+            + self._config.engagement_weight
+        )
+
+        score_breakdown = {
+            "language": self._weighted_contribution(language_score, self._config.language_weight, preliminary_weight),
+            "niche": self._weighted_contribution(niche_score, self._config.niche_weight, preliminary_weight),
+            "bio": self._weighted_contribution(bio_score, self._config.bio_weight, preliminary_weight),
+            "followers": self._weighted_contribution(follower_score, self._config.follower_weight, preliminary_weight),
+            "engagement": self._weighted_contribution(engagement_score, self._config.engagement_weight, preliminary_weight),
+        }
+
+        return round(sum(score_breakdown.values()), 2)
 
     def _weighted_contribution(self, score: float, weight: float, total_weight: float) -> float:
         """Convert a normalized score into a weighted 0-100 contribution."""

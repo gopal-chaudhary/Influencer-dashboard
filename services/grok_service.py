@@ -88,7 +88,7 @@ class GrokService:
         logger.debug("Analyzing %d influencers with Gemini in a single request", len(influencers))
 
         try:
-            response_text = self._execute_request(prompt)
+            response_text = self._execute_request_with_model_fallback(prompt)
             if not response_text:
                 return self._default_analysis_map(influencers)
 
@@ -119,8 +119,28 @@ class GrokService:
             logger.error("Failed to initialize Gemini client: %s", exc)
             return None
 
-    def _execute_request(self, prompt: str) -> str | None:
-        """Execute the model call with retries for transient failures."""
+    def _execute_request_with_model_fallback(self, prompt: str) -> str | None:
+        """Try configured Gemini models until one returns a usable response."""
+        config = self.config
+        assert config is not None
+
+        last_error: Exception | None = None
+        for model_name in config.model_candidates:
+            try:
+                return self._execute_request(prompt, model_name)
+            except Exception as exc:  # pragma: no cover - provider errors are environment-dependent
+                last_error = exc
+                if self._is_model_unavailable_error(exc):
+                    logger.warning("Gemini model '%s' unavailable; trying fallback model", model_name)
+                    continue
+                raise
+
+        if last_error is not None:
+            logger.error("All configured Gemini models failed: %s", last_error)
+        return None
+
+    def _execute_request(self, prompt: str, model_name: str) -> str | None:
+        """Execute one model call with retries for transient failures."""
         config = self.config
         assert config is not None
 
@@ -143,17 +163,17 @@ class GrokService:
         for attempt in retrying:
             with attempt:
                 try:
-                    return self._create_completion(prompt)
+                    return self._create_completion(prompt, model_name)
                 except Exception as exc:  # pragma: no cover - SDK/network failures are environment-dependent
                     last_error = exc
-                    logger.warning("Gemini request attempt failed: %s", exc)
+                    logger.warning("Gemini request attempt failed for model '%s': %s", model_name, exc)
                     raise
 
         if last_error is not None:
             logger.error("Gemini request failed after retries: %s", last_error)
         return None
 
-    def _create_completion(self, prompt: str) -> str:
+    def _create_completion(self, prompt: str, model_name: str) -> str:
         """Make the actual API request and return the raw assistant content."""
         client = self.client
         config = self.config
@@ -170,7 +190,7 @@ class GrokService:
             )
 
         response = client.models.generate_content(
-            model=config.model,
+            model=model_name,
             contents=prompt,
             config=response_config,
         )
@@ -179,6 +199,12 @@ class GrokService:
         if not content or not content.strip():
             raise GrokResponseParseError("Gemini returned an empty response")
         return content
+
+    @staticmethod
+    def _is_model_unavailable_error(error: Exception) -> bool:
+        """Return true when Gemini says a model is unavailable or not found."""
+        error_text = str(error).casefold()
+        return "not_found" in error_text or "model" in error_text and "not" in error_text and "available" in error_text
 
     @staticmethod
     def _load_types_module() -> ModuleType | None:

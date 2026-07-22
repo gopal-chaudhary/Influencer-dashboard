@@ -89,7 +89,12 @@ def _render_details(evaluated_influencers: Sequence[EvaluatedInfluencer]) -> Non
         influencer = result.influencer
         ai_analysis = result.ai_analysis
         score_result = result.score_result
-        with st.expander(f"#{result.rank} {influencer.name} (@{influencer.handle})", expanded=False):
+        
+        # Build title with AI status indicator
+        ai_status = "✓ AI Analyzed" if result.ai_analysis_performed else "⚠ Not AI Analyzed"
+        title = f"#{result.rank} {influencer.name} (@{influencer.handle}) [{ai_status}]"
+        
+        with st.expander(title, expanded=False):
             st.markdown(f"**Bio:** {influencer.bio or 'No bio provided.'}")
             st.markdown("**Recent content:**")
             if influencer.recent_content:
@@ -98,9 +103,21 @@ def _render_details(evaluated_influencers: Sequence[EvaluatedInfluencer]) -> Non
             else:
                 st.write("- No recent content provided.")
 
-            st.markdown(f"**AI summary:** {ai_analysis.summary or 'No summary available.'}")
-            st.markdown(f"**AI reasoning:** {ai_analysis.reasoning or 'No reasoning available.'}")
-            st.markdown(f"**Keywords:** {', '.join(ai_analysis.keywords) if ai_analysis.keywords else 'None'}")
+            # Show AI analysis section with appropriate status
+            if result.ai_analysis_performed:
+                st.markdown(f"**AI summary:** {ai_analysis.summary or 'No summary available.'}")
+                st.markdown(f"**AI reasoning:** {ai_analysis.reasoning or 'No reasoning available.'}")
+                st.markdown(f"**Keywords:** {', '.join(ai_analysis.keywords) if ai_analysis.keywords else 'None'}")
+            else:
+                st.warning(
+                    "⚠️ **AI Analysis Not Performed**\n\n"
+                    "This influencer ranked outside the top threshold and was not analyzed by Gemini AI to reduce API costs. "
+                    "Only rule-based scoring was applied."
+                )
+                st.markdown(
+                    f"*Reason: {ai_analysis.reasoning}*"
+                )
+
             st.markdown("**Score breakdown:**")
             breakdown_df = pd.DataFrame(
                 [
@@ -109,6 +126,13 @@ def _render_details(evaluated_influencers: Sequence[EvaluatedInfluencer]) -> Non
                 ]
             )
             st.dataframe(breakdown_df, hide_index=True, use_container_width=True)
+            
+            # Show preliminary vs final score info if not analyzed
+            if not result.ai_analysis_performed:
+                st.caption(
+                    f"📊 Preliminary Score: {score_result.preliminary_score:.2f} | "
+                    f"Final Score (rule-based): {score_result.total_score:.2f}"
+                )
 
 
 def _to_table_row(result: EvaluatedInfluencer) -> dict[str, object]:

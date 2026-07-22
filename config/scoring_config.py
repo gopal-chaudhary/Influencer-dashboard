@@ -46,6 +46,12 @@ BIO_KEYWORDS: tuple[str, ...] = (
 FOLLOWER_CAP = 1_000_000.0
 ENGAGEMENT_RATE_CAP = 0.20
 
+# AI Analysis Configuration
+# Number of top-ranked influencers to receive Gemini AI analysis.
+# Remaining influencers show preliminary rule-based scores only.
+# This reduces API usage while maintaining quality analysis for top candidates.
+TOP_AI_ANALYSIS_COUNT = 10
+
 
 @dataclass(frozen=True, slots=True)
 class ScoringConfig:
@@ -62,6 +68,7 @@ class ScoringConfig:
     bio_keywords: tuple[str, ...] = BIO_KEYWORDS
     follower_cap: float = FOLLOWER_CAP
     engagement_rate_cap: float = ENGAGEMENT_RATE_CAP
+    top_ai_analysis_count: int = TOP_AI_ANALYSIS_COUNT
 
     def __post_init__(self) -> None:
         """Normalize and validate configuration values."""
@@ -86,6 +93,9 @@ class ScoringConfig:
 
         if self.engagement_rate_cap <= 0:
             raise ValueError("engagement_rate_cap must be greater than zero")
+
+        if self.top_ai_analysis_count < 0:
+            raise ValueError("top_ai_analysis_count cannot be negative")
 
     @property
     def total_weight(self) -> float:
